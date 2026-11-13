@@ -1,0 +1,444 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Culebrita LCD</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&family=VT323&display=swap">
+<style>
+  /* Layout: one centered column. Header, three scoreboard stats, the LCD screen, controls, hint. */
+  :root {
+    --bg: #e3e7d6;
+    --fg: #222c16;
+    --screen: #b9c78f;
+    --ink: #222c16;
+    --ghost: rgba(34, 44, 22, 0.09);
+    --veil: rgba(185, 199, 143, 0.92);
+    --muted: #586345;
+    --display: 'Silkscreen', 'Courier New', monospace;
+    --num: 'VT323', 'Courier New', monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #12160f;
+      --fg: #c6dc9b;
+      --screen: #232b1a;
+      --ink: #c6dc9b;
+      --ghost: rgba(198, 220, 155, 0.07);
+      --veil: rgba(35, 43, 26, 0.93);
+      --muted: #8a9c68;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #12160f;
+    --fg: #c6dc9b;
+    --screen: #232b1a;
+    --ink: #c6dc9b;
+    --ghost: rgba(198, 220, 155, 0.07);
+    --veil: rgba(35, 43, 26, 0.93);
+    --muted: #8a9c68;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font: 20px/1.4 var(--num);
+    padding-block: 20px;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+  }
+  .wrap { max-width: 440px; margin: 0 auto; display: grid; gap: 16px; }
+  h1 {
+    font: 700 22px/1 var(--display);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    margin: 0;
+    text-wrap: balance;
+  }
+  .sub { margin: 6px 0 0; color: var(--muted); }
+
+  .hud { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .stat { display: grid; gap: 2px; min-width: 0; }
+  .lab {
+    font: 400 10px/1.2 var(--display);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .val { font: 400 44px/1 var(--num); font-variant-numeric: tabular-nums; }
+
+  .screen {
+    position: relative;
+    background: var(--screen);
+    border: 3px solid var(--ink);
+    padding: 8px;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .screen.open { border-style: dashed; }
+  canvas { display: block; width: 100%; max-width: 100%; aspect-ratio: 1; image-rendering: pixelated; }
+  .overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    text-align: center;
+    padding: 16px;
+    background: var(--veil);
+  }
+  .overlay h2 {
+    font: 700 20px/1.1 var(--display);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    margin: 0;
+    text-wrap: balance;
+  }
+  .overlay p { margin: 0 0 6px; font-size: 24px; line-height: 1.15; }
+
+  .btn {
+    font: 700 11px/1 var(--display);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    min-height: 40px;
+    padding: 10px 14px;
+    border: 2px solid var(--ink);
+    background: transparent;
+    color: var(--ink);
+    cursor: pointer;
+  }
+  .btn:hover:not(:disabled) { background: var(--ink); color: var(--bg); }
+  .btn.primary { background: var(--ink); color: var(--screen); }
+  .btn.primary:hover:not(:disabled) { opacity: 0.85; background: var(--ink); color: var(--screen); }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn:focus-visible, canvas:focus-visible { outline: 3px solid var(--fg); outline-offset: 2px; }
+
+  .bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .note { margin: 0; color: var(--muted); }
+
+  .dpad {
+    display: none;
+    grid-template-columns: repeat(3, 64px);
+    grid-template-rows: repeat(2, 64px);
+    gap: 8px;
+    justify-content: center;
+  }
+  .dpad .btn { width: 100%; height: 100%; min-height: 0; padding: 0; display: grid; place-items: center; touch-action: manipulation; }
+  .dpad svg { width: 24px; height: 24px; }
+  .dpad [data-dir="up"] { grid-column: 2; grid-row: 1; }
+  .dpad [data-dir="left"] { grid-column: 1; grid-row: 2; }
+  .dpad [data-dir="down"] { grid-column: 2; grid-row: 2; }
+  .dpad [data-dir="right"] { grid-column: 3; grid-row: 2; }
+  .dpad [data-dir="left"] svg { transform: rotate(-90deg); }
+  .dpad [data-dir="right"] svg { transform: rotate(90deg); }
+  .dpad [data-dir="down"] svg { transform: rotate(180deg); }
+
+  .hint-touch { display: none; }
+  @media (pointer: coarse) {
+    .dpad { display: grid; }
+    .hint-key { display: none; }
+    .hint-touch { display: inline; }
+  }
+</style>
+
+<main class="wrap">
+  <header>
+    <h1>Culebrita LCD</h1>
+    <p class="sub">Come, crece y no te muerdas la cola.</p>
+  </header>
+
+  <section class="hud" aria-label="Marcador">
+    <div class="stat"><span class="lab">Puntos</span><span class="val" id="score">000</span></div>
+    <div class="stat"><span class="lab">Récord</span><span class="val" id="best">000</span></div>
+    <div class="stat"><span class="lab">Nivel</span><span class="val" id="level">01</span></div>
+  </section>
+
+  <div class="screen" id="screen">
+    <canvas id="board" width="400" height="400" role="img" aria-label="Tablero de la culebrita, 20 por 20 casillas"></canvas>
+    <div class="overlay" id="overlay">
+      <h2 id="ov-title">¿Listo?</h2>
+      <p id="ov-text">Pulsa una flecha o toca Jugar.</p>
+      <button class="btn primary" id="ov-btn" type="button">Jugar</button>
+    </div>
+  </div>
+
+  <div class="bar">
+    <button class="btn" id="pause" type="button" disabled>Pausa</button>
+    <button class="btn" id="walls" type="button">Paredes: sólidas</button>
+  </div>
+  <p class="note" id="mode-note">Chocar con el borde termina la partida.</p>
+
+  <div class="dpad" aria-label="Cruceta">
+    <button class="btn" type="button" data-dir="up" aria-label="Arriba"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5l8 12H4z" fill="currentColor"/></svg></button>
+    <button class="btn" type="button" data-dir="left" aria-label="Izquierda"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5l8 12H4z" fill="currentColor"/></svg></button>
+    <button class="btn" type="button" data-dir="down" aria-label="Abajo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5l8 12H4z" fill="currentColor"/></svg></button>
+    <button class="btn" type="button" data-dir="right" aria-label="Derecha"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5l8 12H4z" fill="currentColor"/></svg></button>
+  </div>
+
+  <p class="note">
+    <span class="hint-key">Flechas o WASD para moverte · Espacio para pausar.</span>
+    <span class="hint-touch">Desliza sobre la pantalla o usa la cruz.</span>
+    Cada 5 puntos sube el nivel y la culebra corre más.
+  </p>
+</main>
+
+<script>
+(function () {
+  var N = 20, C = 20;
+  var canvas = document.getElementById('board');
+  var ctx = canvas.getContext('2d');
+  var $ = function (id) { return document.getElementById(id); };
+  var screenEl = $('screen'), overlay = $('overlay'), ovTitle = $('ov-title'), ovText = $('ov-text'), ovBtn = $('ov-btn');
+  var pauseBtn = $('pause'), wallsBtn = $('walls'), modeNote = $('mode-note');
+  var sScore = $('score'), sBest = $('best'), sLevel = $('level');
+  var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  var solid = true, snake, dir, queue, food, score = 0;
+  var state = 'ready', dieAt = 0, won = false, prevBest = 0, acc = 0, last = 0;
+  var bests = { solid: 0, wrap: 0 };
+  try {
+    var saved = JSON.parse(localStorage.getItem('culebrita-best') || '{}');
+    if (+saved.solid) bests.solid = +saved.solid;
+    if (+saved.wrap) bests.wrap = +saved.wrap;
+  } catch (e) {}
+  function saveBest() { try { localStorage.setItem('culebrita-best', JSON.stringify(bests)); } catch (e) {} }
+  function modeKey() { return solid ? 'solid' : 'wrap'; }
+  function pad(n, w) { return String(n).padStart(w, '0'); }
+
+  var pal = {};
+  function readPal() {
+    var cs = getComputedStyle(document.documentElement);
+    ['screen', 'ink', 'ghost'].forEach(function (k) { pal[k] = cs.getPropertyValue('--' + k).trim(); });
+  }
+
+  function updateHud() {
+    sScore.textContent = pad(score, 3);
+    sBest.textContent = pad(bests[modeKey()], 3);
+    sLevel.textContent = pad(Math.floor(score / 5) + 1, 2);
+  }
+  function interval() { return Math.max(65, 150 - Math.floor(score / 5) * 10); }
+
+  function placeFood() {
+    var occ = new Set(snake.map(function (s) { return s.y * N + s.x; }));
+    var free = [];
+    for (var i = 0; i < N * N; i++) if (!occ.has(i)) free.push(i);
+    var pick = free[Math.floor(Math.random() * free.length)];
+    food = { x: pick % N, y: Math.floor(pick / N) };
+  }
+  function reset() {
+    snake = [{ x: 10, y: 10 }, { x: 9, y: 10 }, { x: 8, y: 10 }];
+    dir = { x: 1, y: 0 };
+    queue = [];
+    score = 0;
+    placeFood();
+    updateHud();
+  }
+
+  function showOverlay(title, text, btn, focus) {
+    ovTitle.textContent = title;
+    ovText.textContent = text;
+    ovBtn.textContent = btn;
+    overlay.hidden = false;
+    if (focus) ovBtn.focus({ preventScroll: true });
+  }
+  function hideOverlay() { overlay.hidden = true; }
+
+  function start() {
+    reset();
+    prevBest = bests[modeKey()];
+    state = 'play';
+    acc = 0;
+    last = performance.now();
+    hideOverlay();
+    pauseBtn.textContent = 'Pausa';
+  }
+  function resume() {
+    state = 'play';
+    acc = 0;
+    last = performance.now();
+    hideOverlay();
+    pauseBtn.textContent = 'Pausa';
+  }
+  function togglePause() {
+    if (state === 'play') {
+      state = 'pause';
+      pauseBtn.textContent = 'Seguir';
+      showOverlay('Pausa', 'Respira un segundo.', 'Seguir', true);
+    } else if (state === 'pause') {
+      resume();
+    }
+  }
+  function die(win) {
+    state = 'dying';
+    won = !!win;
+    dieAt = performance.now();
+    updateHud();
+    setTimeout(function () {
+      state = 'over';
+      var record = score > prevBest && score > 0;
+      var text = 'Puntos ' + score + ' · Récord ' + bests[modeKey()] + (record ? ' · ¡Nuevo récord!' : '');
+      showOverlay(won ? '¡Pantalla llena!' : 'Fin de partida', text, 'Otra vez', true);
+    }, reduce ? 300 : 800);
+  }
+
+  function step() {
+    if (queue.length) dir = queue.shift();
+    var x = snake[0].x + dir.x, y = snake[0].y + dir.y;
+    if (x < 0 || x >= N || y < 0 || y >= N) {
+      if (solid) return die(false);
+      x = (x + N) % N;
+      y = (y + N) % N;
+    }
+    var eating = x === food.x && y === food.y;
+    var body = eating ? snake : snake.slice(0, -1);
+    for (var i = 0; i < body.length; i++) if (body[i].x === x && body[i].y === y) return die(false);
+    snake.unshift({ x: x, y: y });
+    if (eating) {
+      score++;
+      if (score > bests[modeKey()]) { bests[modeKey()] = score; saveBest(); }
+      updateHud();
+      if (snake.length >= N * N) return die(true);
+      placeFood();
+    } else {
+      snake.pop();
+    }
+  }
+
+  function setDir(dx, dy) {
+    if (state === 'ready') start();
+    if (state !== 'play') return;
+    var ref = queue.length ? queue[queue.length - 1] : dir;
+    if ((dx === ref.x && dy === ref.y) || (dx === -ref.x && dy === -ref.y)) return;
+    if (queue.length < 2) queue.push({ x: dx, y: dy });
+  }
+
+  function draw(t) {
+    readPal();
+    ctx.fillStyle = pal.screen;
+    ctx.fillRect(0, 0, N * C, N * C);
+    ctx.fillStyle = pal.ghost;
+    for (var gy = 0; gy < N; gy++) for (var gx = 0; gx < N; gx++) ctx.fillRect(gx * C + 3, gy * C + 3, C - 6, C - 6);
+
+    ctx.fillStyle = pal.ink;
+    var fx = food.x * C, fy = food.y * C;
+    [[8, 4], [4, 8], [12, 8], [8, 12]].forEach(function (p) { ctx.fillRect(fx + p[0], fy + p[1], 4, 4); });
+    if (reduce || Math.floor(t / 320) % 2 === 0) ctx.fillRect(fx + 8, fy + 8, 4, 4);
+
+    var hide = state === 'dying' && !reduce && Math.floor((t - dieAt) / 130) % 2 === 1;
+    if (hide) return;
+    ctx.strokeStyle = pal.ink;
+    ctx.lineWidth = 2;
+    snake.forEach(function (s, i) {
+      var px = s.x * C, py = s.y * C;
+      ctx.fillStyle = pal.ink;
+      if (i === 0) {
+        ctx.fillRect(px + 1, py + 1, C - 2, C - 2);
+        ctx.fillStyle = pal.screen;
+        if (dir.x !== 0) {
+          var ex = dir.x > 0 ? 13 : 4;
+          ctx.fillRect(px + ex, py + 5, 3, 3);
+          ctx.fillRect(px + ex, py + 12, 3, 3);
+        } else {
+          var ey = dir.y > 0 ? 13 : 4;
+          ctx.fillRect(px + 5, py + ey, 3, 3);
+          ctx.fillRect(px + 12, py + ey, 3, 3);
+        }
+      } else {
+        ctx.strokeRect(px + 2, py + 2, C - 4, C - 4);
+        ctx.fillRect(px + 7, py + 7, 6, 6);
+      }
+    });
+  }
+
+  function syncControls() {
+    var playing = state === 'play' || state === 'pause';
+    var busy = playing || state === 'dying';
+    if (pauseBtn.disabled !== !playing) pauseBtn.disabled = !playing;
+    if (wallsBtn.disabled !== busy) wallsBtn.disabled = busy;
+  }
+
+  function frame(t) {
+    if (state === 'play') {
+      acc += Math.min(t - last, 250);
+      last = t;
+      var iv = interval();
+      while (acc >= iv && state === 'play') { acc -= iv; step(); }
+    } else {
+      last = t;
+    }
+    draw(t);
+    syncControls();
+    requestAnimationFrame(frame);
+  }
+
+  function syncMode() {
+    wallsBtn.textContent = solid ? 'Paredes: sólidas' : 'Paredes: sin límite';
+    screenEl.classList.toggle('open', !solid);
+    modeNote.textContent = solid
+      ? 'Chocar con el borde termina la partida.'
+      : 'Al salir por un borde, entras por el lado opuesto.';
+    updateHud();
+  }
+
+  var keys = {
+    ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0],
+    w: [0, -1], s: [0, 1], a: [-1, 0], d: [1, 0]
+  };
+  window.addEventListener('keydown', function (e) {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    var k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+    if (keys[k]) { e.preventDefault(); setDir(keys[k][0], keys[k][1]); return; }
+    if (k === ' ' || k === 'Enter') {
+      if (e.target && e.target.tagName === 'BUTTON') return;
+      e.preventDefault();
+      if (state === 'ready' || state === 'over') start();
+      else if (state === 'play' || state === 'pause') togglePause();
+      return;
+    }
+    if (k === 'p') togglePause();
+  });
+
+  var sx = 0, sy = 0, tracking = false;
+  screenEl.addEventListener('pointerdown', function (e) {
+    if (e.pointerType === 'mouse' || (e.target.closest && e.target.closest('button'))) return;
+    tracking = true; sx = e.clientX; sy = e.clientY;
+  });
+  screenEl.addEventListener('pointermove', function (e) {
+    if (!tracking) return;
+    var dx = e.clientX - sx, dy = e.clientY - sy;
+    if (Math.max(Math.abs(dx), Math.abs(dy)) < 22) return;
+    if (Math.abs(dx) > Math.abs(dy)) setDir(dx > 0 ? 1 : -1, 0);
+    else setDir(0, dy > 0 ? 1 : -1);
+    sx = e.clientX; sy = e.clientY;
+  });
+  ['pointerup', 'pointercancel'].forEach(function (n) { window.addEventListener(n, function () { tracking = false; }); });
+
+  var dirs = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
+  document.querySelectorAll('.dpad .btn').forEach(function (b) {
+    var d = dirs[b.getAttribute('data-dir')];
+    b.addEventListener('pointerdown', function (e) { e.preventDefault(); setDir(d[0], d[1]); });
+    b.addEventListener('click', function (e) { if (e.detail === 0) setDir(d[0], d[1]); });
+  });
+
+  ovBtn.addEventListener('click', function () { if (state === 'pause') resume(); else start(); });
+  pauseBtn.addEventListener('click', togglePause);
+  wallsBtn.addEventListener('click', function () {
+    if (state === 'play' || state === 'pause' || state === 'dying') return;
+    solid = !solid;
+    state = 'ready';
+    reset();
+    syncMode();
+    showOverlay('¿Listo?', 'Pulsa una flecha o toca Jugar.', 'Jugar', false);
+  });
+  document.addEventListener('visibilitychange', function () { if (document.hidden && state === 'play') togglePause(); });
+
+  reset();
+  syncMode();
+  requestAnimationFrame(frame);
+})();
+</script>
+
+</body></html>
